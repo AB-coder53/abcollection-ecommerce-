@@ -1,0 +1,300 @@
+import "server-only";
+
+import { createHmac, timingSafeEqual } from "crypto";
+
+import { CANONICAL_SITE_ORIGIN } from "@/lib/canonical-url";
+import { SITE_URL } from "@/lib/site";
+
+const API_VERSION = "2025-01-01";
+
+export type CashfreeMode = "sandbox" | "production";
+
+type CashfreeOrder = {
+  cf_order_id?: string | number;
+  order_id?: string;
+  order_amount?: number;
+  order_currency?: string;
+  order_status?: string;
+  payment_session_id?: string;
+  message?: string;
+};
+
+type CashfreePayment = {
+  cf_payment_id?: string | number;
+  payment_status?: string;
+  payment_amount?: number;
+  payment_currency?: string;
+};
+
+function cashfreeEnv(): CashfreeMode {
+  const raw = (process.env["CASHFREE_ENV"] || process.env["NEXT_PUBLIC_CASHFREE_MODE"] || "sandbox")
+    .trim()
+    .toLowerCase();
+  return raw === "production" ? "production" : "sandbox";
+}
+
+function cashfreeBaseUrl(mode = cashfreeEnv()) {
+  return mode === "production" ? "https://api.cashfree.com/pg" : "https://sandbox.cashfree.com/pg";
+}
+
+export function getCashfreeConfig() {
+  const appId = (
+    process.env["CASHFREE_APP_ID"] ||
+    process.env["NEXT_PUBLIC_CASHFREE_APP_ID"] ||
+    ""
+  ).trim();
+  const secretKey = (process.env["CASHFREE_SECRET_KEY"] || "").trim();
+  const mode = cashfreeEnv();
+  return {
+    appId,
+    secretKey,
+    mode,
+    configured: Boolean(appId && secretKey),
+    baseUrl: cashfreeBaseUrl(mode),
+  };
+}
+
+function httpsOrigin(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") return "";
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") return "";
+    return url.origin;
+  } catch {
+    return "";
+  }
+}
+
+export function storefrontOrigin(value: string) {
+  const origin = httpsOrigin(value);
+  if (!origin) return "";
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    if (host === "abcollection.co.in" || host === "www.abcollection.co.in") return origin;
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+/**
+ * `next dev` against the Cashfree sandbox sends shoppers back to the machine they
+ * came from (localhost or a phone on the LAN) instead of the live storefront.
+ */
+function localSandboxOrigin(value: string) {
+  if (process.env.NODE_ENV === "production" || cashfreeEnv() !== "sandbox") return "";
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : "";
+  } catch {
+    return "";
+  }
+}
+
+export function requestStorefrontOrigin(request: Request) {
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || "";
+  const host = forwardedHost || request.headers.get("host")?.trim() || "";
+  const proto =
+    (request.headers.get("x-forwarded-proto") || "https").split(",")[0]?.trim() || "https";
+  const origin = `${proto}://${host}`;
+  return localSandboxOrigin(origin) || storefrontOrigin(origin) || CANONICAL_SITE_ORIGIN;
+}
+
+function cashfreeReturnUrl(origin?: string, returnPath = "/checkout/return") {
+  const override = httpsOrigin(process.env["CASHFREE_RETURN_URL"] || "");
+  const site =
+    localSandboxOrigin(origin || "") ||
+    storefrontOrigin(origin || "") ||
+    storefrontOrigin(SITE_URL) ||
+    CANONICAL_SITE_ORIGIN;
+  const base = override || site;
+  return `${base}${returnPath}?order_id={order_id}`;
+}
+
+/** Membership fee orders use their own prefix so webhooks can route them. */
+export const MEMBERSHIP_ORDER_PREFIX = "abm";
+
+export function isMembershipGatewayOrder(orderId: string) {
+  return orderId.trim().toLowerCase().startsWith(MEMBERSHIP_ORDER_PREFIX);
+}
+
+export function membershipGatewayOrderId(membershipId: string) {
+  return `${MEMBERSHIP_ORDER_PREFIX}${membershipId.replace(/-/g, "")}`;
+}
+
+export function cashfreeOrderIdFromCheckoutId(checkoutId: string) {
+  return `ab${checkoutId.replace(/-/g, "")}`;
+}
+
+export function checkoutIdFromCashfreeOrderId(orderId: string) {
+  const hex = orderId.trim().replace(/^ab/i, "");
+  if (!/^[0-9a-f]{32}$/i.test(hex)) return "";
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function authHeaders() {
+  const { appId, secretKey } = getCashfreeConfig();
+  if (!appId || !secretKey) {
+    throw Object.assign(
+      new Error("Cashfree is not configured. Add CASHFREE_APP_ID and CASHFREE_SECRET_KEY."),
+      {
+        status: 503,
+      },
+    );
+  }
+  return {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    "x-api-version": API_VERSION,
+    "x-client-id": appId,
+    "x-client-secret": secretKey,
+  };
+}
+
+async function cashfreeFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const { baseUrl } = getCashfreeConfig();
+  const res = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: { ...authHeaders(), ...(init?.headers ?? {}) },
+    cache: "no-store",
+  });
+  const body = (await res.json().catch(() => ({}))) as T & { message?: string };
+  if (!res.ok) {
+    throw Object.assign(new Error(body.message || "Cashfree request failed."), {
+      status: res.status >= 400 && res.status < 500 ? res.status : 502,
+    });
+  }
+  return body;
+}
+
+export async function createCashfreeOrder(input: {
+  checkoutId: string;
+  amount: number;
+  customerId: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  returnOrigin?: string;
+}) {
+  return createCashfreeGatewayOrder({
+    ...input,
+    orderId: cashfreeOrderIdFromCheckoutId(input.checkoutId),
+    returnPath: "/checkout/return",
+    note: "AB Collection",
+  });
+}
+
+/** Creates (or returns the existing) Cashfree order for any purchase on the site. */
+export async function createCashfreeGatewayOrder(input: {
+  orderId: string;
+  amount: number;
+  customerId: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  returnOrigin?: string;
+  returnPath: string;
+  note: string;
+}) {
+  const orderId = input.orderId;
+  const returnUrl = cashfreeReturnUrl(input.returnOrigin, input.returnPath);
+  const notifyOrigin =
+    localSandboxOrigin(input.returnOrigin || "") ||
+    storefrontOrigin(input.returnOrigin || "") ||
+    storefrontOrigin(SITE_URL) ||
+    CANONICAL_SITE_ORIGIN;
+  try {
+    return await cashfreeFetch<CashfreeOrder>("/orders", {
+      method: "POST",
+      body: JSON.stringify({
+        order_id: orderId,
+        order_amount: input.amount,
+        order_currency: "INR",
+        customer_details: {
+          customer_id: input.customerId.replace(/-/g, "").slice(0, 50),
+          customer_name: input.customerName.slice(0, 100),
+          // Guests may skip email; Cashfree only needs the phone.
+          ...(input.customerEmail ? { customer_email: input.customerEmail.slice(0, 100) } : {}),
+          customer_phone: input.customerPhone,
+        },
+        order_meta: {
+          return_url: returnUrl,
+          notify_url: `${notifyOrigin}/api/payments/cashfree`,
+        },
+        order_note: input.note,
+      }),
+    });
+  } catch (error) {
+    const err = error as { status?: number; message?: string };
+    if (err.status === 409 || /already exists|duplicate/i.test(err.message ?? "")) {
+      return getCashfreeOrder(orderId);
+    }
+    throw error;
+  }
+}
+
+export async function getCashfreeOrder(orderId: string) {
+  return cashfreeFetch<CashfreeOrder>(`/orders/${encodeURIComponent(orderId)}`);
+}
+
+export async function getCashfreePayments(orderId: string) {
+  return cashfreeFetch<CashfreePayment[]>(`/orders/${encodeURIComponent(orderId)}/payments`);
+}
+
+export function verifyCashfreeWebhook(rawBody: string, signature: string, timestamp: string) {
+  const { secretKey } = getCashfreeConfig();
+  if (!secretKey || !signature || !timestamp) return false;
+  const expected = createHmac("sha256", secretKey)
+    .update(`${timestamp}${rawBody}`)
+    .digest("base64");
+  const actual = Buffer.from(signature);
+  const wanted = Buffer.from(expected);
+  if (actual.length !== wanted.length) return false;
+  return timingSafeEqual(actual, wanted);
+}
+
+export async function verifyCashfreePayment(orderId: string, expectedAmount: number) {
+  let order = await getCashfreeOrder(orderId);
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const status = String(order.order_status || "").toUpperCase();
+    if (status === "PAID") break;
+    if (status && status !== "ACTIVE") break;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    order = await getCashfreeOrder(orderId);
+  }
+  const status = String(order.order_status || "").toUpperCase();
+  if (status !== "PAID") {
+    // An ACTIVE order is still open: either the bank has not answered yet
+    // (UPI often takes a while) or every attempt so far failed.
+    const attempts =
+      status === "ACTIVE"
+        ? await getCashfreePayments(orderId).catch(() => [] as CashfreePayment[])
+        : [];
+    const settled = new Set(["FAILED", "USER_DROPPED", "CANCELLED", "VOID"]);
+    const pending =
+      status === "ACTIVE" &&
+      (!attempts.length ||
+        attempts.some((row) => !settled.has(String(row.payment_status || "").toUpperCase())));
+    throw Object.assign(
+      new Error(
+        pending
+          ? "Payment is still pending. Complete payment to place the order."
+          : "Payment was not completed. Your cart is unchanged.",
+      ),
+      { status: 409, code: pending ? "payment_pending" : "payment_failed" },
+    );
+  }
+  const paidAmount = Number(order.order_amount);
+  if (!Number.isFinite(paidAmount) || Math.round(paidAmount) !== Math.round(expectedAmount)) {
+    throw Object.assign(new Error("Paid amount does not match this order."), { status: 409 });
+  }
+  const payments = await getCashfreePayments(orderId).catch(() => [] as CashfreePayment[]);
+  const success = payments.find(
+    (row) => String(row.payment_status || "").toUpperCase() === "SUCCESS",
+  );
+  return {
+    cashfreeOrderId: String(order.order_id || orderId),
+    paymentId: success?.cf_payment_id != null ? String(success.cf_payment_id) : null,
+    amount: paidAmount,
+  };
+}

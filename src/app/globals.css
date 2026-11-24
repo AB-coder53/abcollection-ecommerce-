@@ -1,0 +1,351 @@
+@import "tailwindcss" source(none);
+@source "..";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+/* Real hover (mouse) on a roomy screen: quick-add panels, image swaps. */
+@custom-variant can-hover (@media (hover: hover) and (min-width: 900px));
+
+/*
+ * AB COLLECTION — design system
+ * Ink #111111 · Bone #F6F4F0 · Paper #FFFFFF · Sand #E9E3D8 · Line #E2DED7
+ * Muted #6B6862 · Gold lives only in the logo artwork, never in UI
+ * Bodoni Moda (editorial headlines) + Jost (UI / body). Square corners.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 10px);
+  --font-display: var(--font-bodoni), "Bodoni Moda", Didot, "Times New Roman", serif;
+  --font-sans: var(--font-jost), Jost, "Helvetica Neue", Arial, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sand: var(--sand);
+  --color-sand-foreground: var(--sand-foreground);
+  --color-olive: var(--olive);
+  --color-olive-foreground: var(--olive-foreground);
+  --color-ink: var(--ink);
+  --color-ink-foreground: var(--ink-foreground);
+  --color-teal: var(--teal);
+  --color-teal-foreground: var(--teal-foreground);
+  --color-gold: var(--gold);
+  --color-cream: var(--soft-cream);
+  --color-ivory: var(--warm-ivory);
+  --color-charcoal: var(--charcoal);
+  --color-paper: var(--paper);
+  --color-line: var(--border);
+  --color-bone: var(--warm-ivory);
+  --ease-brand: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --tracking-luxe: 0.18em;
+}
+
+:root {
+  /*
+   * Surfaces: page (bone) < card (paper, white). Sand is editorial only:
+   * image placeholders and full-bleed story bands, never form or summary UI.
+   */
+  --ab-black: #111111;
+  --charcoal: #3b3935;
+  --warm-ivory: #f6f5f2;
+  --soft-cream: #ebe6dd;
+  --paper: #ffffff;
+  --gold: #111111;
+  --radius: 0px;
+  --page-pad: clamp(1rem, 3.2vw, 2.75rem);
+  --header-h: 60px;
+  --announce-h: 36px;
+  --background: #f6f5f2;
+  --foreground: #111111;
+  --card: #ffffff;
+  --card-foreground: #111111;
+  --popover: #ffffff;
+  --popover-foreground: #111111;
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --secondary: #efede9;
+  --secondary-foreground: #111111;
+  --muted: #efede9;
+  --muted-foreground: #6b6862;
+  --accent: #efede9;
+  --accent-foreground: #111111;
+  --destructive: #b42318;
+  --destructive-foreground: #ffffff;
+  --border: #e4e0d9;
+  --input: #d6d1c8;
+  --ring: #111111;
+  --sand: #ebe6dd;
+  --sand-foreground: #111111;
+  --olive: #111111;
+  --olive-foreground: #ffffff;
+  --ink: #111111;
+  --ink-foreground: #f1efea;
+  /* Legacy name: every primary action uses ink now. */
+  --teal: #111111;
+  --teal-foreground: #ffffff;
+  /* Admin uses the same light, ink-on-white system as the store. */
+  --sidebar: #ffffff;
+  --sidebar-foreground: #111111;
+  --sidebar-primary: #111111;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #efede9;
+  --sidebar-accent-foreground: #111111;
+  --sidebar-border: #e4e0d9;
+  --sidebar-ring: #111111;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    max-width: 100%;
+    scroll-padding-top: calc(var(--header-h) + 16px);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.6;
+    letter-spacing: 0.01em;
+    -webkit-font-smoothing: antialiased;
+    max-width: 100%;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-sans);
+    font-weight: 300;
+    letter-spacing: -0.01em;
+    line-height: 1.1;
+  }
+
+  blockquote {
+    font-family: var(--font-display);
+    font-weight: 400;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-foreground);
+    outline-offset: 2px;
+  }
+
+  button,
+  input:where([type="button"], [type="submit"], [type="reset"]) {
+    appearance: none;
+    -webkit-appearance: none;
+  }
+}
+
+@utility eyebrow {
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+}
+
+/* Page gutter used by every storefront section. */
+@utility page-wrap {
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  padding-inline: var(--page-pad);
+}
+
+/* Small uppercase tracked label: buttons, card titles, nav. */
+@utility label-caps {
+  font-size: 0.76rem;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* Editorial serif headline. */
+@utility editorial {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+}
+
+/* Hairline that draws in from the left on hover, open or current page. */
+@utility nav-underline {
+  &::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0.3rem;
+    height: 1px;
+    background: currentColor;
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 350ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  &:hover::after,
+  &[aria-expanded="true"]::after,
+  &[aria-current="page"]::after {
+    transform: scaleX(1);
+  }
+}
+
+/* Loading placeholder: a soft light sweep, still in reduced motion. */
+@utility skeleton {
+  background-color: var(--color-muted);
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: shimmer 1.4s linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    background-image: none;
+  }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 900ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 900ms cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  &[data-visible="true"] {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fan-in {
+  from {
+    opacity: 0;
+    transform: translateY(36px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes ken-burns {
+  from {
+    transform: scale(1.12) translate3d(0, -1%, 0);
+  }
+  to {
+    transform: scale(1.02);
+  }
+}
+
+@keyframes line-up {
+  from {
+    transform: translateY(110%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+@utility animate-marquee {
+  animation: marquee 40s linear infinite;
+}
+
+@utility animate-ken-burns {
+  animation: ken-burns 9s ease-out both;
+}
+
+@utility animate-line-up {
+  animation: line-up 1s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@utility animate-fan-in {
+  animation: fan-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@utility animate-float-soft {
+  animation: float-soft 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .animate-fan-in,
+  .animate-float-soft,
+  .animate-marquee,
+  .animate-ken-burns,
+  .animate-line-up {
+    animation: none;
+  }
+}

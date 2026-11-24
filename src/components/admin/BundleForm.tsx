@@ -1,0 +1,581 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState, type FormEvent } from "react";
+import { ImagePlus, Loader2, Plus, Star, Trash2, X } from "lucide-react";
+
+import { uploadAdminImage } from "@/components/admin/AdminFields";
+
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import type { Product } from "@/lib/catalog-types";
+import { colorSwatchClass } from "@/lib/product-colors";
+import { parsePriceInr } from "@/lib/price";
+import type { BundleOffer } from "@/lib/store-offers";
+import { cn } from "@/lib/utils";
+
+const emptyBundle = (): BundleOffer => ({
+  id: "",
+  title: "",
+  productIds: [],
+  productColors: [],
+  showOnProductIds: [],
+  pricingType: "fixed",
+  bundlePrice: 0,
+  discountPercent: 0,
+  startsAt: "",
+  endsAt: "",
+  active: true,
+  featured: false,
+  sortOrder: 0,
+  images: [],
+});
+
+function nextBundleLine(products: Product[], existing: { productId: string; color: string }[]) {
+  const unused = products.find(
+    (product) => !existing.some((line) => line.productId === product.id),
+  );
+  const product = unused ?? products[0];
+  if (!product) return { productId: "", color: "" };
+  const usedColors = new Set(
+    existing.filter((line) => line.productId === product.id).map((line) => line.color),
+  );
+  const color = product.colors.find((item) => !usedColors.has(item)) ?? product.colors[0] ?? "";
+  return { productId: product.id, color };
+}
+
+function withBundleLines(offer: BundleOffer, products: Product[]): BundleOffer {
+  const productIds = [...offer.productIds];
+  const productColors = offer.productIds.map((id, index) => {
+    const product = products.find((row) => row.id === id);
+    const saved = offer.productColors[index] ?? "";
+    if (saved && product?.colors.includes(saved)) return saved;
+    return product?.colors[0] ?? "";
+  });
+  while (productIds.length < 2 && products.length) {
+    const line = nextBundleLine(
+      products,
+      productIds.map((productId, index) => ({ productId, color: productColors[index] ?? "" })),
+    );
+    if (!line.productId) break;
+    productIds.push(line.productId);
+    productColors.push(line.color);
+  }
+  return { ...offer, productIds, productColors };
+}
+
+function toLocalInput(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 16);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function BundleForm({
+  mode,
+  initial,
+  products,
+}: {
+  mode: "create" | "edit";
+  initial?: BundleOffer;
+  products: Product[];
+}) {
+  const router = useRouter();
+  const [form, setForm] = useState<BundleOffer>(() =>
+    withBundleLines(initial ?? emptyBundle(), products),
+  );
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const setLineProduct = (index: number, productId: string) => {
+    const product = products.find((row) => row.id === productId);
+    setForm((prev) => {
+      const productIds = [...prev.productIds];
+      const productColors = [...prev.productColors];
+      productIds[index] = productId;
+      const current = productColors[index] ?? "";
+      productColors[index] =
+        current && product?.colors.includes(current) ? current : (product?.colors[0] ?? "");
+      return { ...prev, productIds, productColors };
+    });
+  };
+
+  const setLineColor = (index: number, color: string) => {
+    setForm((prev) => {
+      const productColors = [...prev.productColors];
+      productColors[index] = color;
+      return { ...prev, productColors };
+    });
+  };
+
+  const addLine = () => {
+    setForm((prev) => {
+      if (prev.productIds.length >= 12) return prev;
+      const line = nextBundleLine(
+        products,
+        prev.productIds.map((productId, index) => ({
+          productId,
+          color: prev.productColors[index] ?? "",
+        })),
+      );
+      if (!line.productId) return prev;
+      return {
+        ...prev,
+        productIds: [...prev.productIds, line.productId],
+        productColors: [...prev.productColors, line.color],
+      };
+    });
+  };
+
+  const removeLine = (index: number) => {
+    setForm((prev) => {
+      if (prev.productIds.length <= 2) return prev;
+      return {
+        ...prev,
+        productIds: prev.productIds.filter((_, itemIndex) => itemIndex !== index),
+        productColors: prev.productColors.filter((_, itemIndex) => itemIndex !== index),
+      };
+    });
+  };
+
+  const individualTotal = form.productIds.reduce((sum, id) => {
+    const product = products.find((row) => row.id === id);
+    return sum + parsePriceInr(product?.price);
+  }, 0);
+
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const payload: BundleOffer = {
+        ...form,
+        showOnProductIds: [...new Set(form.productIds)],
+        startsAt: form.startsAt || "",
+        endsAt: form.endsAt || "",
+      };
+      const res = await fetch(
+        mode === "create" ? "/api/admin/bundles" : `/api/admin/bundles/${form.id}`,
+        {
+          method: mode === "create" ? "POST" : "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Save failed");
+      router.push("/admin/bundles");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="bg-white shadow-none">
+      <form onSubmit={onSubmit} className="space-y-5 p-6">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Bundle ID (slug)</span>
+            <Input
+              required
+              disabled={mode === "edit"}
+              value={form.id}
+              onChange={(e) => setForm((prev) => ({ ...prev, id: e.target.value }))}
+              placeholder="three-tee-bundle"
+              className="h-11 bg-white"
+            />
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Title</span>
+            <Input
+              required
+              value={form.title}
+              onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder="Everyday 3-pack"
+              className="h-11 bg-white"
+            />
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Pricing type</span>
+            <NativeSelect
+              value={form.pricingType ?? "fixed"}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  pricingType: e.target.value === "percent" ? "percent" : "fixed",
+                }))
+              }
+            >
+              <option value="fixed">Fixed bundle price</option>
+              <option value="percent">Percentage discount</option>
+            </NativeSelect>
+          </label>
+          {(form.pricingType ?? "fixed") === "percent" ? (
+            <label className="space-y-2 text-sm">
+              <span className="font-medium">Discount percent</span>
+              <Input
+                required
+                type="number"
+                min={1}
+                max={90}
+                value={form.discountPercent || ""}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, discountPercent: Number(e.target.value) || 0 }))
+                }
+                className="h-11 bg-white"
+              />
+            </label>
+          ) : (
+            <label className="space-y-2 text-sm">
+              <span className="font-medium">Bundle price (INR)</span>
+              <Input
+                required
+                type="number"
+                min={1}
+                value={form.bundlePrice || ""}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, bundlePrice: Number(e.target.value) || 0 }))
+                }
+                className="h-11 bg-white"
+              />
+            </label>
+          )}
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Sort order</span>
+            <Input
+              type="number"
+              value={form.sortOrder}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, sortOrder: Number(e.target.value) || 0 }))
+              }
+              className="h-11 bg-white"
+            />
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Starts at (optional)</span>
+            <Input
+              type="datetime-local"
+              value={toLocalInput(form.startsAt)}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  startsAt: e.target.value ? new Date(e.target.value).toISOString() : "",
+                }))
+              }
+              className="h-11 bg-white"
+            />
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Ends at (optional)</span>
+            <Input
+              type="datetime-local"
+              value={toLocalInput(form.endsAt)}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  endsAt: e.target.value ? new Date(e.target.value).toISOString() : "",
+                }))
+              }
+              className="h-11 bg-white"
+            />
+          </label>
+        </div>
+
+        <BundleImagesField
+          images={form.images ?? []}
+          onChange={(images) => setForm((prev) => ({ ...prev, images }))}
+        />
+
+        <label className="flex items-center gap-3 text-sm">
+          <Checkbox
+            checked={form.active}
+            onCheckedChange={(checked) =>
+              setForm((prev) => ({ ...prev, active: checked === true }))
+            }
+          />
+          Active
+        </label>
+
+        <label className="flex items-center gap-3 text-sm">
+          <Checkbox
+            checked={form.featured ?? false}
+            onCheckedChange={(checked) =>
+              setForm((prev) => ({ ...prev, featured: checked === true }))
+            }
+          />
+          Featured on homepage
+        </label>
+
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium">Products in this bundle</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Add two or more tees, and choose the colour for each one. The same product can be
+                added again in another colour.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className=""
+              disabled={form.productIds.length >= 12 || products.length === 0}
+              onClick={addLine}
+            >
+              <Plus className="size-4" />
+              Add product
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Individual total: ₹{individualTotal.toLocaleString("en-IN") || 0}
+            {(form.pricingType ?? "fixed") === "percent" && form.discountPercent
+              ? ` · Bundle ${Math.round(individualTotal * (1 - form.discountPercent / 100)).toLocaleString("en-IN")}`
+              : form.bundlePrice
+                ? ` · Bundle ₹${form.bundlePrice.toLocaleString("en-IN")}`
+                : ""}
+          </p>
+          <div className="mt-3 space-y-3">
+            {form.productIds.map((productId, index) => {
+              const product = products.find((row) => row.id === productId);
+              const color = form.productColors[index] ?? "";
+              return (
+                <div key={`${index}-${productId}`} className="border border-border p-3">
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1 space-y-3">
+                      <label className="block space-y-2 text-sm">
+                        <span className="font-medium">Product {index + 1}</span>
+                        <NativeSelect
+                          value={productId}
+                          onChange={(event) => setLineProduct(index, event.target.value)}
+                        >
+                          {products.map((row) => (
+                            <option key={row.id} value={row.id}>
+                              {row.name} · {row.price}
+                            </option>
+                          ))}
+                        </NativeSelect>
+                      </label>
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">Colour</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(product?.colors ?? []).map((option) => {
+                            const selected = option === color;
+                            return (
+                              <button
+                                key={option}
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() => setLineColor(index, option)}
+                                className={cn(
+                                  "inline-flex h-10 items-center gap-2 border px-3 text-sm",
+                                  selected
+                                    ? "border-foreground bg-foreground text-background"
+                                    : "border-border bg-background hover:border-foreground",
+                                )}
+                              >
+                                <span
+                                  aria-hidden
+                                  className={cn(
+                                    "size-3.5 rounded-full shadow-[inset_0_0_0_1px_rgba(0,0,0,0.15)]",
+                                    colorSwatchClass(option),
+                                  )}
+                                />
+                                {option}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0"
+                      aria-label={`Remove product ${index + 1}`}
+                      disabled={form.productIds.length <= 2}
+                      onClick={() => removeLine(index)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+        <div className="flex flex-wrap gap-3">
+          <Button
+            type="submit"
+            disabled={saving || deleting}
+            className="bg-teal text-teal-foreground"
+          >
+            {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+            {mode === "create" ? "Create bundle" : "Save changes"}
+          </Button>
+          <Button type="button" variant="outline" className="" onClick={() => router.back()}>
+            Cancel
+          </Button>
+          {mode === "edit" ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleting || saving}
+              className="text-destructive"
+              onClick={() => {
+                if (!confirm("Delete this bundle? It will no longer appear on product pages."))
+                  return;
+                setDeleting(true);
+                void fetch(`/api/admin/bundles/${form.id}`, { method: "DELETE" })
+                  .then(async (res) => {
+                    const data = (await res.json()) as { error?: string };
+                    if (!res.ok) throw new Error(data.error ?? "Delete failed");
+                    router.push("/admin/bundles");
+                    router.refresh();
+                  })
+                  .catch((err: unknown) => {
+                    setError(err instanceof Error ? err.message : "Delete failed");
+                  })
+                  .finally(() => setDeleting(false));
+              }}
+            >
+              {deleting ? <Loader2 className="size-4 animate-spin" /> : null}
+              Delete
+            </Button>
+          ) : null}
+        </div>
+      </form>
+    </Card>
+  );
+}
+
+/** Bundle photos: upload several, first is the cover shown on cards. */
+function BundleImagesField({
+  images,
+  onChange,
+}: {
+  images: string[];
+  onChange: (images: string[]) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const [url, setUrl] = useState("");
+
+  const upload = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setUploading(true);
+    setError("");
+    try {
+      const room = Math.max(0, 8 - images.length);
+      const uploaded: string[] = [];
+      for (const file of Array.from(files).slice(0, room)) {
+        uploaded.push(await uploadAdminImage(file));
+      }
+      onChange([...images, ...uploaded]);
+      if (files.length > room) setError("A bundle can have up to 8 photos.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 border border-border p-4">
+      <div>
+        <p className="text-sm font-medium">Bundle photos</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Show what's in the bundle, e.g. all pieces laid out together. The first photo is the cover
+          on the shop page and product pages. Up to 8. Without photos, the product photos are used.
+        </p>
+      </div>
+      {images.length ? (
+        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {images.map((src, index) => (
+            <li key={`${src}-${index}`} className="relative">
+              <img src={src} alt="" className="aspect-[4/5] w-full bg-muted object-cover" />
+              {index === 0 ? (
+                <span className="absolute bottom-1 left-1 bg-ink px-1.5 py-0.5 text-[0.6rem] tracking-[0.12em] text-white uppercase">
+                  Cover
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  title="Make cover"
+                  aria-label="Make this the cover photo"
+                  onClick={() => onChange([src, ...images.filter((_, i) => i !== index)])}
+                  className="absolute bottom-1 left-1 grid size-7 place-items-center bg-white/90"
+                >
+                  <Star className="size-3.5" />
+                </button>
+              )}
+              <button
+                type="button"
+                aria-label="Remove photo"
+                onClick={() => onChange(images.filter((_, i) => i !== index))}
+                className="absolute top-1 right-1 grid size-7 place-items-center bg-white/90"
+              >
+                <X className="size-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <label className="inline-flex cursor-pointer">
+          <input
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            disabled={uploading || images.length >= 8}
+            onChange={(event) => {
+              void upload(event.target.files);
+              event.target.value = "";
+            }}
+          />
+          <span className="inline-flex h-11 items-center justify-center gap-2 border border-border bg-white px-4 text-sm font-medium">
+            {uploading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <ImagePlus className="size-4" />
+            )}
+            Upload photos
+          </span>
+        </label>
+        <div className="flex flex-1 gap-2">
+          <Input
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            placeholder="…or paste an image URL"
+            className="h-11 bg-white"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11"
+            disabled={!url.trim() || images.length >= 8}
+            onClick={() => {
+              onChange([...images, url.trim()]);
+              setUrl("");
+            }}
+          >
+            Add
+          </Button>
+        </div>
+      </div>
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
