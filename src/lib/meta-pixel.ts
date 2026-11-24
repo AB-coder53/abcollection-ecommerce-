@@ -80,9 +80,10 @@ export function fbqTrackClick(label: string, path: string, destination?: string 
 
 const PURCHASE_KEY_PREFIX = "ab_meta_purchase_";
 
-/** Fire Purchase once per order (guarded with sessionStorage + eventID dedupe). */
+/** Fire Purchase once per paid order (guarded with sessionStorage + eventID dedupe). */
 export function fbqTrackPurchase(order: Order) {
   if (typeof window === "undefined") return;
+  if (order.paymentStatus !== "paid" || !order.orderNumber) return;
   const key = `${PURCHASE_KEY_PREFIX}${order.orderNumber}`;
   try {
     if (window.sessionStorage.getItem(key)) return;

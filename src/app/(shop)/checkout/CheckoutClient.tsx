@@ -242,9 +242,12 @@ export default function CheckoutClient() {
     serverQuote?.totalAmount ??
     Math.max(0, subtotal - member.memberSavings - previewDiscount - (appliedBundle?.savings ?? 0));
 
+  // Meta Events Manager has an active rule that records a Purchase on any click
+  // whose label contains "pay", before Cashfree confirms the order. Keep "pay"
+  // out of these labels so opening checkout is not counted as a sale.
   const payLabel = priceNotice
-    ? `Confirm & pay ${formatInr(priceNotice.total)}`
-    : `Pay ${formatInr(total)}`;
+    ? `Confirm ${formatInr(priceNotice.total)}`
+    : `Place order · ${formatInr(total)}`;
 
   // Any change to the cart or code means the shopper is looking at a fresh total.
   useEffect(() => {
@@ -992,9 +995,8 @@ export default function CheckoutClient() {
               <div className="mt-4 flex items-start gap-3 text-sm">
                 <Lock className="mt-0.5 size-4 shrink-0" strokeWidth={1.4} aria-hidden />
                 <p className="text-muted-foreground">
-                  Pay by <span className="text-foreground">UPI, card or netbanking</span> in
-                  Cashfree&apos;s secure window. Your order is confirmed and stock is held only once
-                  payment succeeds.
+                  UPI, card or netbanking opens in Cashfree&apos;s secure window. The order is
+                  confirmed and stock is held only after that succeeds.
                 </p>
               </div>
             </section>
@@ -1136,8 +1138,8 @@ export default function CheckoutClient() {
                 <p className="mt-1 text-muted-foreground">
                   Prices were updated since you opened checkout (for example, a membership ended or
                   a price changed). The new total is{" "}
-                  <b className="font-medium text-foreground">{formatInr(priceNotice.total)}</b>. Pay
-                  below to continue at this price.
+                  <b className="font-medium text-foreground">{formatInr(priceNotice.total)}</b>.
+                  Continue below at this price.
                 </p>
               </div>
             ) : null}
@@ -1178,7 +1180,7 @@ export default function CheckoutClient() {
               {submitting ? (
                 <>
                   <Loader2 className="mr-2 size-4 animate-spin" />
-                  {paying ? "Waiting for payment..." : "Confirming payment..."}
+                  {paying ? "Waiting for confirmation..." : "Confirming order..."}
                 </>
               ) : total > 0 ? (
                 payLabel
@@ -1215,8 +1217,8 @@ export default function CheckoutClient() {
             >
               {submitting
                 ? paying
-                  ? "Waiting for payment..."
-                  : "Confirming payment..."
+                  ? "Waiting for confirmation..."
+                  : "Confirming order..."
                 : total > 0
                   ? payLabel
                   : "Place order"}
